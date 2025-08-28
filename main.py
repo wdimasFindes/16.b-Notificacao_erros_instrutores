@@ -21,6 +21,8 @@ from O365 import Account, FileSystemTokenBackend
 import math
 
 load_dotenv()
+DEV_MODE = os.getenv("DEV_MODE", "False").lower() == "true"
+
 class main:
     def __init__(self, slack_notifier, logger):
         self.baseDirectory = os.getcwd()
@@ -67,6 +69,19 @@ class main:
         status, dfRM = rmApi.GetConsultaSQL(dt_inicio_d, dt_fim_d)
         print(dfRM)
 
+        if DEV_MODE:
+            #dfRM = dfRM.assign(
+            #    SUPIMED_EMAIL="wescley@findesa.org.br",
+            #    RESP_PED_EMAIL="wescley@findesb.org.br"
+                #SUPIMED_EMAIL="jbravo@findes.org.br",
+                #RESP_PED_EMAIL="jangelica@findes.org.br"
+            #)
+            if "SUPIMED_EMAIL" not in dfRM.columns:
+                dfRM["SUPIMED_EMAIL"] = ""
+
+            if "RESP_PED_EMAIL" not in dfRM.columns:
+                dfRM["RESP_PED_EMAIL"] = ""
+
         if "Error" in status:
             self.logger.info("Erro ao pegar dados da API.")
             self.slack.post_message("Erro ao pegar dados da API.")
@@ -78,17 +93,21 @@ class main:
         self.logger.info("Iniciando etapa de excel/emails.")
         try:
             self.logger.info("Lendo arquivo RM.")
-            #dfRM = pd.read_excel(self.dataDirectory + "arquivoRM.xlsx")
+            #dfRM = pd.read_excel(self.dataDirectory + "arquivoRM.xlsx") -
             dfRM["STATUS"] = "PENDENTE"
-            dfRM.rename(columns={'PROFESSOR': 'INSTRUTOR'}, inplace=True)
+            #dfRM.rename(columns={'PROFESSOR': 'INSTRUTOR'}, inplace=True)
             #Filtro de unidade para piloto
-            dfRM.sort_values(by="UNIDADE")
+            #dfRM.sort_values(by="UNIDADE")
+
+            #Filtrando apenas para a FILIAL 4 - piloto
+            dfFiltradoFilial = dfRM.query('CODFILIAL == 4')
+            dfRM = dfFiltradoFilial            
 
             # ** Remover comentário após testes de novo SQL.
-            dfInstrutores = excel.GetInstrutores(dfRM)
-            print(dfInstrutores)
-            dfInstrutores = dfInstrutores.drop_duplicates(subset="CODPERLET")
-            
+            dfProfessores = excel.GetProfessores(dfRM)
+            #print(dfProfessores)
+            dfProfessores = dfProfessores.drop_duplicates(subset="CODPERLET")
+
         except Exception as e:
              self.logger.info(f"Erro ao ler dataframe: {e}")
              self.slack.post_message(f"Error in get DataFrame: {e}")
@@ -122,35 +141,50 @@ class main:
 
         # DataFrame para armazenar os resultados
         #resultado_validacao = []
+        #         
 
+
+        #Filtrando apenas para a FILIAL 4 - piloto
+        self.logger.info("Filtrando apenas coligada 4 - piloto")
+        dfUnidades_filial4 = dfUnidades.query('CODFILIAL == 4')
         # Loop sobre as linhas do dfUnidades
-        for index, row in dfUnidades.iterrows():
+        for index, row in dfUnidades_filial4.iterrows():
             try:
                 # Obter o valor de 'CODFILIAL' da linha de dfUnidades (isso vai ser usado no assunto)
                 codfilial = row['CODFILIAL']
                 unidade_desc = row['UNIDADE']
-                # codfilial = 4
-               # Filtrar dfInstrutores com base no 'CODFILIAL'
-                df_filtrado_instrutores = dfInstrutores[dfInstrutores['CODFILIAL'] == codfilial]
+                #Filtrando Filial 4 para piloto
+                codfilial = 4
+                #Filtrar dfInstrutores com base no 'CODFILIAL'
+                self.logger.info(f"Processando unidade: {codfilial} - {unidade_desc}")
+                df_filtrado_instrutores = dfProfessores[dfProfessores['CODFILIAL'] == codfilial]
 
                 # Verificar se existem resultados após o filtro
                 if not df_filtrado_instrutores.empty:
                     # Gerar a tabela com as validações dos instrutores
+                    self.logger.info(f"Gerando tabela de validação para a unidade {codfilial} - {unidade_desc}")
                     tabela_validacao = self.gerar_tabela_validacao(df_filtrado_instrutores, dominios_permitidos)
 
                     if tabela_validacao.shape[0] > 0:  # verifica se há linhas no DataFrame
                         # Criar o corpo do e-mail em HTML
                         # body = self.create_html_body(tabela_validacao, row)
+                        self.logger.info("Criando body do e-mail")
                         body = self.create_html_body(tabela_validacao, row['UNIDADE'])
                         # Enviar o e-mail para os responsáveis (ADM1, ADM2, ADM3)
-                        mail.SendMail(
-                            row['Responsáveis ADM1'], 
-                            row['Responsáveis ADM2'], 
-                            row['Responsáveis ADM3'], 
-                            body, 
-                            codfilial,
-                            token
-                        )
+                        try:
+                            self.logger.info("Fazendo disparo de e-mail")
+                            emails = [row['Responsáveis ADM1'], row['Responsáveis ADM2'], row['Responsáveis ADM3']]
+                            mail.SendMail(
+                                row['Responsáveis ADM1'], 
+                                row['Responsáveis ADM2'], 
+                                row['Responsáveis ADM3'], 
+                                body, 
+                                codfilial,
+                                token
+                            )
+                            self.logger.info("E-mail enviado com sucesso")
+                        except Exception as e:
+                            self.logger.error(f"Houve um erro ao enviar o e-mail: {e}")
                     else:
                         print(f"Nenhuma correção pendente para a unidade {codfilial}")
                         self.logger.info("Nenhuma correção pendente para a unidade")
@@ -164,7 +198,8 @@ class main:
         resultado = []
         for _, instrutor_row in df_instrutores.iterrows():
             emailSupervisor = instrutor_row["SUPIMED_EMAIL"]
-            emailInstrutor = instrutor_row["EMAIL"]
+            #emailInstrutor = instrutor_row["EMAIL"]
+            emailInstrutor = "wescley@findes.org.br"
             emailOrientador = instrutor_row["RESP_PED_EMAIL"]
 
             # Validar e-mails
@@ -180,8 +215,8 @@ class main:
 
             # Adicionar as validações na tabela
             resultado.append({
-                'Instrutor': str(instrutor_row["INSTRUTOR"]),  # Garantir que todos sejam strings
-                'E-mail do Instrutor': str(emailInstrutor_valido),
+                'Professor': str(instrutor_row["PROFESSOR"]),  # Garantir que todos sejam strings
+                'E-mail do Professor': str(emailInstrutor_valido),
                 'E-mail do Supervisor': str(emailSupervisor_valido),
                 'E-mail do Responsável Pedagógico': str(emailOrientador_valido),
                 'TURNO': str(instrutor_row['TURNO']),
@@ -204,12 +239,12 @@ class main:
 
     def CreateHTMLTable(self, df_resultado):
         # Começa criando a tabela e adicionando o cabeçalho
-        return_str = '<table style="border-collapse: collapse; border: 1px solid #333333; width: 100%;">'
+        return_str = '<table style="border-collapse: collapse; border: 1px solid #0047B5; width: 100%;">'
         
         # Cabeçalho da tabela - centralizando o conteúdo
         return_str += '<tr>'
         for column in df_resultado.columns:
-            return_str += f'<th class="header" style="background-color: #333333; color: #FFFFFF; padding: 8px; text-align: center;">{column}</th>'  # Centralizando o texto do cabeçalho
+            return_str += f'<th class="header" style="background-color: #0047B5; color: #FFFFFF; padding: 8px; text-align: center;">{column}</th>'  # Centralizando o texto do cabeçalho
         return_str += '</tr>'
         
         # Corpo da tabela - percorrendo os dados e aplicando as condições de formatação
@@ -218,15 +253,15 @@ class main:
             
             for column in df_resultado.columns:
                 value = str(row[column])
-                style = 'border: 1px solid #333333; padding: 8px; text-align: center;'  # Centralizando o conteúdo das células
+                style = 'border: 1px solid #0047B5; padding: 8px; text-align: center;'  # Centralizando o conteúdo das células
 
                 # Alterando o fundo para amarelo em caso de E-mail inválido
                 if 'E-mail' in column and value in ['Inválido', 'Não Preenchido']:
-                    style = 'background-color: yellow; color: black; border: 1px solid #333333; padding: 8px; text-align: center;'
+                    style = 'background-color: yellow; color: black; border: 1px solid #0047B5; padding: 8px; text-align: center;'
                 
                 # Alterando o fundo para azul claro caso seja "Noturno" no "TURNO"
                 if column == "TURNO" and value == "Noturno":
-                    style = 'background-color: lightblue; border: 1px solid #333333; padding: 8px; text-align: center;'
+                    style = 'background-color: lightblue; border: 1px solid #0047B5; padding: 8px; text-align: center;'
                 
                 return_str += f'<td style="{style}">{value}</td>'
             
@@ -271,7 +306,7 @@ class main:
             <html>
             <body>
                 <p>Prezado(s),</p>
-                <p>Foi identificado que o(s) seguinte(s) instrutor(es) possuem uma ou mais correções pendentes. Solicitamos que realizem as correções.</p>
+                <p>Foi identificado que o(s) seguinte(s) professor(es) possue(m) uma ou mais correções pendentes. Solicitamos que realizem as correções.</p>
                 <p><strong>FILIAL: {unidade_desc}</strong></p>
                 {tabela_html}
                 <p><strong>Atenciosamente,</strong></p>

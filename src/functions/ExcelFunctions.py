@@ -63,6 +63,19 @@ class ExcelFunctions:
     #     self.dfInstrutores = df[["INSTRUTOR", "EMAIL", "SUPIMED_EMAIL", "RESP_PED_EMAIL"]].drop_duplicates()
     #     return self.dfInstrutores
 
+    def GetProfessores(self, df):
+        # Lista de domínios permitidos
+        dominios_permitidos = ['@sesi-es.org.br', '@senai-es.org.br', '@findes.org.br', '@docente.senai.br']
+        
+        # Filtrando os e-mails que terminam com os domínios permitidos
+        df_filtrado = df[df['EMAIL'].str.endswith(tuple(dominios_permitidos))]
+        
+        # Selecionando as colunas necessárias e removendo duplicatas
+        #self.dfInstrutores = df_filtrado[["CODFILIAL","INSTRUTOR", "EMAIL", "SUPIMED_EMAIL", "RESP_PED_EMAIL","TURNO","CODPERLET"]].drop_duplicates()
+        self.dfProfessores = df_filtrado[["CODFILIAL","PROFESSOR", "EMAIL", "SUPIMED_EMAIL", "RESP_PED_EMAIL","TURNO","CODPERLET"]]
+
+        return self.dfProfessores
+
     def CreateHTMLTable(self, dicData):
 
         return_str = '<table style="border-collapse: collapse; border: 1px solid #333333;"><tr>'
