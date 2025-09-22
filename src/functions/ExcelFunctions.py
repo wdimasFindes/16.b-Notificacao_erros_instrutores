@@ -67,7 +67,7 @@ class ExcelFunctions:
         # Lista de domínios permitidos
         dominios_permitidos = ['@sesi-es.org.br', '@senai-es.org.br', '@findes.org.br', '@docente.senai.br']
         
-        # Filtrando os e-mails que terminam com os domínios permitidos
+        # Filtrando os e-mails que terminam com os domínios permitidos.
         df_filtrado = df[df['EMAIL'].str.endswith(tuple(dominios_permitidos))]
         
         # Selecionando as colunas necessárias e removendo duplicatas
